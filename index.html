@@ -669,6 +669,7 @@
       let sacudida = 0, congelado = 0, destelloPantalla = 0;
       let mensaje = "", mensajeSub = "", mensajeT = 0, resultado = "";
       let cuentaRegresiva = 0, cuentaPasoPrevio = -1;
+      let tiempoFin = 0;
       let verFisica = false;
       const particulas = [], lluvia = Array.from({ length: 80 }, () => ({
         x: Math.random() * W, y: Math.random() * H, s: 3 + Math.random() * 5
@@ -678,6 +679,8 @@
       function reiniciar() {
         initAudio();
         estado = "play"; frame = 0; sacudida = 0; resultado = "";
+        tiempoFin = 0;
+        for (const k in teclas) teclas[k] = false;
         heroe.x = W / 2; heroe.y = 455; heroe.z = heroe.zVuelo;
         heroe.vx = heroe.vy = heroe.vz = 0; heroe.hp = 100; heroe.aturdido = 0;
         heroe.silla.fase = "reposo"; heroe.silla.t = 0; heroe.estela.length = 0;
@@ -695,8 +698,13 @@
         const k = e.key.toLowerCase();
         teclas[k] = true;
         if (["arrowup", "arrowdown", "arrowleft", "arrowright", " "].includes(k)) e.preventDefault();
-        if (e.key === "Enter") { if (estado === "intro") reiniciar(); else if (estado === "fin") estado = "intro"; }
-        if (k === "r") reiniciar();
+        if (e.key === "Enter") {
+          if (estado === "intro") reiniciar();
+          else if (estado === "fin" && tiempoFin > 0.6) estado = "intro";
+        }
+        if (k === "r") {
+          if (estado === "play" || (estado === "fin" && tiempoFin > 0.4)) reiniciar();
+        }
         if (k === "f") verFisica = !verFisica;
         if (e.code === "Space" && estado === "play" && cuentaRegresiva <= 0.6 && heroe.silla.fase === "reposo") {
           heroe.silla.fase = "carga"; heroe.silla.t = 0; heroe.silla.golpeados.clear();
@@ -713,12 +721,19 @@
       });
       addEventListener("keyup", e => { teclas[e.key.toLowerCase()] = false; });
 
-      ["mousedown", "pointerdown", "touchstart"].forEach(evt => {
-        window.addEventListener(evt, () => {
-          initAudio();
-          if (estado === "intro") reiniciar();
-          else if (estado === "fin") estado = "intro";
-        }, { passive: true });
+      // Solo desbloqueo de audio al primer toque en la ventana
+      ["keydown", "pointerdown", "touchstart"].forEach(evt => {
+        window.addEventListener(evt, () => initAudio(), { passive: true, once: true });
+      });
+
+      // Tocar el lienzo específicamente para empezar o volver a la intro
+      canvas.addEventListener("pointerdown", e => {
+        initAudio();
+        if (estado === "intro") {
+          reiniciar();
+        } else if (estado === "fin" && tiempoFin > 0.8) {
+          estado = "intro";
+        }
       });
 
       /* ── impulsos: todo golpe entra por aquí ────────────────────────── */
@@ -931,6 +946,11 @@
       function simular() {
         tiempo += DT; frame++;
         if (congelado > 0) { congelado -= DT; return; }   // hit-stop
+        if (estado === "fin") {
+          tiempoFin += DT;
+          moverParticulas();
+          return;
+        }
         if (estado !== "play") { moverParticulas(); return; }
 
         if (cuentaRegresiva > 0) {
@@ -1017,9 +1037,13 @@
 
         if (heroe.hp <= 0) {
           estado = "fin"; resultado = "DERROTA";
+          tiempoFin = 0;
+          for (const k in teclas) teclas[k] = false;
           sonidoDerrota();
         } else if (titanes.every(t => t.hp <= 0)) {
           estado = "fin"; resultado = "PAZ RESTAURADA";
+          tiempoFin = 0;
+          for (const k in teclas) teclas[k] = false;
           sonidoVictoria();
         }
       }
@@ -1444,7 +1468,11 @@
           texto("QUEDASTE KO", W / 2, 212, 32, "#ff6c73");
           texto("NI UNA SILLA METÁLICA PUDO CON TANTO CAOS.", W / 2, 268, 16, "#edf8ff");
         }
-        texto("ENTER: INTRO  ·  R: REINTENTAR", W / 2, 354, 14, "#a9cfe1");
+        if (tiempoFin > 0.6) {
+          texto("TOCA EL JUEGO O PULSA ENTER PARA CONTINUAR", W / 2, 354, 13, "#a9cfe1");
+        } else {
+          texto("...", W / 2, 354, 13, "#546e7a");
+        }
       }
 
       /* ── bucle con paso fijo ────────────────────────────────────────── */
@@ -1522,9 +1550,7 @@
             btnChair.classList.add("active");
             if (navigator.vibrate) try { navigator.vibrate(20); } catch (_) { }
 
-            if (estado === "intro") reiniciar();
-            else if (estado === "fin") estado = "intro";
-            else if (estado === "play" && cuentaRegresiva <= 0.6 && heroe.silla.fase === "reposo") {
+            if (estado === "play" && cuentaRegresiva <= 0.6 && heroe.silla.fase === "reposo") {
               heroe.silla.fase = "carga";
               heroe.silla.t = 0;
               heroe.silla.golpeados.clear();
@@ -1577,8 +1603,11 @@
             if (e.cancelable) e.preventDefault();
             initAudio();
             btnStart.classList.add("active");
-            if (estado === "intro") reiniciar();
-            else if (estado === "fin") estado = "intro";
+            if (estado === "intro") {
+              reiniciar();
+            } else if (estado === "fin" && tiempoFin > 0.6) {
+              estado = "intro";
+            }
           }, { passive: false });
           btnStart.addEventListener("pointerup", () => btnStart.classList.remove("active"));
           btnStart.addEventListener("pointercancel", () => btnStart.classList.remove("active"));
@@ -1590,7 +1619,9 @@
             if (e.cancelable) e.preventDefault();
             initAudio();
             btnReset.classList.add("active");
-            reiniciar();
+            if (estado === "play" || (estado === "fin" && tiempoFin > 0.4)) {
+              reiniciar();
+            }
           }, { passive: false });
           btnReset.addEventListener("pointerup", () => btnReset.classList.remove("active"));
           btnReset.addEventListener("pointercancel", () => btnReset.classList.remove("active"));
